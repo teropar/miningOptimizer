@@ -21,9 +21,9 @@ API_address = "http://127.0.0.1:4067/summary" #address of the miner API
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
 power_limits = [160,160] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 10 #
-gpu_core_limits = [1400, 1500] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+gpu_core_limits = [50, 1500] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
-gpu_mem_limits = [2000, 2400] #memory clock offset limits
+gpu_mem_limits = [2100, 2400] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
 step_time = 120 #how many seconds we run each setting
 result_divider = 1000000 #1000 to produce KH/s or 1000000 for MH/s
@@ -70,11 +70,20 @@ def set_mem_clk(gpu,clock,no_output):
     command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[4]=" + str(clock) + "\""
     return subprocess.run([command], shell=True,capture_output=no_output)
 
-#clear the results file if already exists    
-with open("./results_gpu" + str(gpu) + ".log", 'w') as the_file:
-    the_file.write("Hashrate\treported W\tcore\tmem\tefficiency (hashrate/W)\n")
-
+#all power values to be tested
+power_values = range(power_limits[0], power_limits[1]+power_step,power_step)
+#all core values to be tested
+core_values = range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step)
+#all mem values to be tested
+mem_values = range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step)
 results_log = [] #store all results in this, currently no used
+
+#open the file   
+if(save_file):
+    filename = "./results_gpu" + str(gpu) + "_p" + str(power_values[0]) + "-" + str(power_values[-1]) + "_c" + str(core_values[0]) + "-" + str(core_values[-1]) + "_m" + str(mem_values[0]) + "-" + str(mem_values[-1]) + ".log"
+    with open(filename, 'w') as the_file:
+        the_file.write("Hashrate\treported W\tcore\tmem\tefficiency (hashrate/W)\n")
+    
 #send first settings to GPU and test that Nvidia commands will 
 #return 0, to make sure we can alter the settings
 print("Trying to send the first settings to GPU. Response from nvidia drivers enabled here to see possible errors")
@@ -85,7 +94,10 @@ output2 = set_mem_clk(gpu,gpu_mem_limits[0],False)
 output3 = set_gpu_power(gpu,power_limits[0], False)
 
 if(output1.returncode == 0 and output2.returncode == 0):
-    print("Initial settings successfull, testing will start...")
+    print("\nInitial settings successfull, testing will start..."); print("Testing iteratively all the combinations:")
+    print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W")
+    print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]))
+    print("GPU memory from " + str(mem_values[0]) + " to " + str(mem_values[-1]))
     test_time = int((int((gpu_core_limits[1] - gpu_core_limits[0])/core_step + 1) * int((gpu_mem_limits[1] - gpu_mem_limits[0])/mem_step + 1) * int((power_limits[1] - power_limits[0])/power_step + 1) * step_time) / 60)
     print("Full test time is " + str(test_time) + "min")
     best_rate = 0
@@ -119,18 +131,18 @@ if(output1.returncode == 0 and output2.returncode == 0):
                 #save the results
                 results_log.append((power,core,mem,hashrate))
                 if(save_file):
-                    with open("./results_gpu" + str(gpu) + ".log", 'a') as the_file:
+                    with open(filename, 'a') as the_file:
                         the_file.write(str(hashrate) + "\t\t" + str(miner_power) + "\t\t" + str(core) + "\t" + str(mem) + "\t" + str(efficiency) + "\n")
                 
     #use the best hashrate settings
     print("Test finished")
     #print("Best settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "   efficiency: " + str(best_settings[3]))
-    print("Best hash rate settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_settings[3]))
+    print("Best hashrate settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_settings[3]))
     print("Best efficiency settings, power: " + str(best_eff_settings[0]) + ", core: " + str(best_eff_settings[1]) + ", mem: " + str(best_eff_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_eff_settings[3]))
-    print("Writing the best settings to GPU")
+    print("Writing the best hashrate settings to GPU")
     if(save_file):
-        print("Writing results to file results_gpu" + str(gpu) + ".log")
-        with open("./results_gpu" + str(gpu) + ".log", 'a') as the_file:
+        print("Writing results to file " + filename)
+        with open(filename, 'a') as the_file:
             the_file.write("Best hash rate settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_settings[3]) + "\n")
             the_file.write("Best efficiency settings, power: " + str(best_eff_settings[0]) + ", core: " + str(best_eff_settings[1]) + ", mem: " + str(best_eff_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_eff_settings[3]) + "\n")
     #set the best core      
