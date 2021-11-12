@@ -8,16 +8,20 @@ Created on Sat Nov  6 15:49:50 2021
 # core/mem 70/1000   26.59
 # core/mem 80/1000   26.74
 # core/mem 90/1100   26.72
+"""
+import socket
+import json
 
+#nvidia-smi --query-gpu="power.draw" --format=csv,noheader,nounits  #read power
 #sudo nvidia-smi -i 0 --lock-gpu-clocks=1000,1000    #absolute clock
-#sudo nvidia-smi -i 0 -rgc     #reset
+#sudo nvidia-smi -i 0 -rgc     #reset clocks
 
 import requests
 import subprocess
 import time
 
 ### SETTINGS
-API_address = "http://127.0.0.1:4067/summary" #address of the miner API
+miner = 0 # t-rex = 0, phoenixminer = 1
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
 power_limits = [160,160] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 10 #
@@ -30,29 +34,60 @@ result_divider = 1000000 #1000 to produce KH/s or 1000000 for MH/s
 save_file = True #write results to a file: results.log
 ###
 
-def get_hashrate(gpu, API_addr):
-    try:
-        #get full summary from miner
-        response = requests.get(API_addr)
-    except:
-        print("Connection to miner API failed")
-        return -1,-1
-    if(response.status_code == 200):
-        #if successfull, make the response as a dictionary
-        response_dict = response.json()
-        #extract gpu stats
-        gpu_stats = response_dict["gpus"]
+def get_hashrate(miner, gpu):
+    if(miner == 0):
+        #address of the t-rex miner API
+        API_address = "http://127.0.0.1:4067/summary" 
         try:
-            #extract hashrate
-            hashrate = gpu_stats[gpu]["hashrate"]
-            miner_power = gpu_stats[gpu]["power_avr"]
+            #get full summary from miner
+            response = requests.get(API_addr)
         except:
-            print("Reading hashrate of gpu" + str(gpu) + " failed")
-            return -1,-1
-        return hashrate,miner_power
-    else:
-        return -1,-1
-    
+            print("Connection to miner API failed")
+            return -1
+        if(response.status_code == 200):
+            #if successfull, make the response as a dictionary
+            response_dict = response.json()
+            #extract gpu stats
+            gpu_stats = response_dict["gpus"]
+            try:
+                #extract hashrate
+                hashrate = gpu_stats[gpu]["hashrate"]
+                miner_power = gpu_stats[gpu]["power_avr"]
+            except:
+                print("Reading hashrate of gpu" + str(gpu) + " failed")
+                return -1
+            return hashrate
+        else:
+            return -1
+    elif(miner==1): #phoenixminer
+        ip = "127.0.0.1"
+        port = 3333
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_address = (ip,port)
+        try:
+            sock.connect(server_address)
+        except:
+            print('Miner socket ' + str(ip) + ':' + str(port) + ' is closed')
+            return -1
+        request = '{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"miner_getstat1\"}\n'
+        request = request.encode()    
+        try:
+            sock.sendall(request)
+        except:
+            print('Sending data was aborted')
+            return -1
+        try:
+            data = sock.recv(512)
+        except:
+            print('Recieveing data was aborted')
+            return -1
+
+        message = json.loads(data)
+        sock.close()
+        hashrate = message["result"][3].split(";")[gpu]
+
+        return hashrate
+        
 #use capture_output=True in subprocess.run() to remove output 
 def set_gpu_power(gpu,power,no_output):
     command = "nvidia-smi -i " + str(gpu) + " -pl " + str(power)
@@ -115,7 +150,10 @@ if(output1.returncode == 0 and output2.returncode == 0):
                 print("Testing with power limit: " + str(power) + ", core: " + str(core) + ", mem: " + str(mem) + ". Test time: " + str(round(step_time,1)) + "s")
                 time.sleep(step_time) #wait hashrate to stabilize
                 #check the hashrate
-                hashrate,miner_power = get_hashrate(gpu,API_address) #miner_power = gpu power reported by miner
+                hashrate = get_hashrate(miner,gpu) #miner_power = gpu power reported by miner
+                
+                miner_power=power #update here the true power read 
+                #nvidia-smi --query-gpu="power.draw" --format=csv,noheader,nounits  #read power
         
                 #convert to requested magnitude
                 hashrate = round(hashrate/result_divider,2)
