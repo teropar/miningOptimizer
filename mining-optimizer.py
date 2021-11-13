@@ -2,30 +2,31 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Nov  6 15:49:50 2021
-
 @author: tero
 """
-# core/mem 70/1000   26.59
-# core/mem 80/1000   26.74
-# core/mem 90/1100   26.72
-"""
+
+# Admin priviledges needed for:
+# - Setting GPU power
+# - Setting absolute core clock
+
+# No admin needed for:
+# - Setting core clock offset
+# - Setting memory clock offset
+
 import socket
 import json
 
-#nvidia-smi --query-gpu="power.draw" --format=csv,noheader,nounits  #read power
 #sudo nvidia-smi -i 0 --lock-gpu-clocks=1000,1000    #absolute clock
 #sudo nvidia-smi -i 0 -rgc     #reset clocks
-
 import requests
 import subprocess
 import time
-
 ### SETTINGS
 miner = 0 # t-rex = 0, phoenixminer = 1
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
 power_limits = [160,160] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 10 #
-gpu_core_limits = [50, 1500] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+gpu_core_limits = [600, 1500] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
 gpu_mem_limits = [2100, 2400] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
@@ -34,77 +35,124 @@ result_divider = 1000000 #1000 to produce KH/s or 1000000 for MH/s
 save_file = True #write results to a file: results.log
 ###
 
-def get_hashrate(miner, gpu):
+#query information about GPU
+def query_gpu(gpu,query):
+    command = "nvidia-smi -i " + str(gpu) + " --query-gpu=\"" + str(query) + "\" --format=csv,noheader,nounits"
+    response = subprocess.run(command, shell=True,capture_output=True,text=True)
+    if(response.returncode == 0):
+        value = float(response.stdout[0:-1]) #remove the \n from the string
+        return int(round(value,0))
+    else:
+        print("Did not receive query " + str(query) + "from nvidia-smi")
+        return -1
+def get_hash_pow(miner, gpu,time_step):
     if(miner == 0):
         #address of the t-rex miner API
         API_address = "http://127.0.0.1:4067/summary" 
+        divider = 0
+        pow_sum = 0
+        #idea is to average four power values
+        #hashrate averaging default is 60s in t-rex, so no need to average
+        for i in range(4): 
+            time.sleep(time_step/4)
+            pow_temp = query_gpu(gpu,"power.draw")
+            if(pow_temp > 0):
+                pow_sum = pow_sum + pow_temp
+                divider = divider+1
+        gpu_power = pow_sum/divider
         try:
             #get full summary from miner
-            response = requests.get(API_addr)
+            response = requests.get(API_address)
         except:
             print("Connection to miner API failed")
-            return -1
+            return -1, gpu_power
         if(response.status_code == 200):
             #if successfull, make the response as a dictionary
             response_dict = response.json()
             #extract gpu stats
             gpu_stats = response_dict["gpus"]
-            try:
-                #extract hashrate
-                hashrate = gpu_stats[gpu]["hashrate"]
-                miner_power = gpu_stats[gpu]["power_avr"]
-            except:
-                print("Reading hashrate of gpu" + str(gpu) + " failed")
-                return -1
-            return hashrate
+            #extract hashrate
+            hashrate = gpu_stats[gpu]["hashrate"]
+            
+            return hashrate,gpu_power
         else:
-            return -1
+            return -1, gpu_power
     elif(miner==1): #phoenixminer
         ip = "127.0.0.1"
         port = 3333
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_address = (ip,port)
-        try:
+        try: #connect to miner
             sock.connect(server_address)
         except:
             print('Miner socket ' + str(ip) + ':' + str(port) + ' is closed')
-            return -1
-        request = '{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"miner_getstat1\"}\n'
-        request = request.encode()    
-        try:
-            sock.sendall(request)
-        except:
-            print('Sending data was aborted')
-            return -1
-        try:
-            data = sock.recv(512)
-        except:
-            print('Recieveing data was aborted')
-            return -1
-
-        message = json.loads(data)
+        divider_hash = 0
+        divider_pow = 0
+        pow_sum = 0
+        hash_sum = 0
+        for i in range(4):
+            valid = True
+            time.sleep(time_step/4)
+            #read power
+            pow_temp = query_gpu(gpu,"power.draw")
+            pow_sum = pow_sum+pow_temp
+            divider_pow = divider_pow+1
+            #check hashrate
+            request = '{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"miner_getstat1\"}\n'
+            request = request.encode()    
+            try:
+                sock.sendall(request)
+            except:
+                print('Sending data was aborted')
+                valid = False
+            try:
+                data = sock.recv(512)
+            except:
+                print('Recieveing data was aborted')
+                valid = False
+            message = json.loads(data)
+            hashrate_tmp = int(message["result"][3].split(";")[gpu])
+            if(valid):
+                hash_sum = hash_sum + hashrate_tmp
+                divider_hash = divider_hash+1
+                print(hashrate_tmp)
+            else:
+                valid = True #try to connect again
+                try: #connect to miner
+                    sock.connect(server_address)
+                except:
+                    print('Miner socket ' + str(ip) + ':' + str(port) + ' is closed')
+        hashrate = hash_sum/divider_hash
+        gpu_power = pow_sum/divider_pow
         sock.close()
-        hashrate = message["result"][3].split(";")[gpu]
-
-        return hashrate
+        return hashrate,gpu_power
         
 #use capture_output=True in subprocess.run() to remove output 
-def set_gpu_power(gpu,power,no_output):
+def set_gpu_power(gpu,power,catch_output):
     command = "nvidia-smi -i " + str(gpu) + " -pl " + str(power)
-    return subprocess.run([command], shell=True,capture_output=no_output)
-
-def set_core_clk(gpu,clock,no_output):
+    return subprocess.run(command, shell=True,capture_output=catch_output)
+def set_core_clk(gpu,clock,catch_output):
     if(clock <= 500): #values of 500 or below are considered as offset
         command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[4]=" + str(clock) + "\""
-        return subprocess.run([command], shell=True,capture_output=no_output)
+        return subprocess.run(command, shell=True,capture_output=catch_output)
     else:
         command = "nvidia-smi -i " + str(gpu) + " --lock-gpu-clocks=" + str(clock) + "," + str(clock)
-        return subprocess.run([command], shell=True,capture_output=no_output)
+        return subprocess.run(command, shell=True,capture_output=catch_output)
     
-def set_mem_clk(gpu,clock,no_output):
+def set_mem_clk(gpu,clock,catch_output):
     command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[4]=" + str(clock) + "\""
-    return subprocess.run([command], shell=True,capture_output=no_output)
+    return subprocess.run(command, shell=True,capture_output=catch_output)
 
+#check min power limit of gpu
+reported_min_pl = query_gpu(gpu,"power.min_limit")
+if(reported_min_pl > 0): #chekc that value is valid
+    if(power_limits[0] < reported_min_pl):
+        power_limits[0] = reported_min_pl
+        print("Reported min gpu power is smaller than requested limits, adjusting..")
+    if(power_limits[1] < reported_min_pl):
+        power_limits[1] = reported_min_pl
+        print("Reported min gpu power is smaller than requested limits, adjusting..")
+        
 #all power values to be tested
 power_values = range(power_limits[0], power_limits[1]+power_step,power_step)
 #all core values to be tested
@@ -112,7 +160,6 @@ core_values = range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step)
 #all mem values to be tested
 mem_values = range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step)
 results_log = [] #store all results in this, currently no used
-
 #open the file   
 if(save_file):
     filename = "./results_gpu" + str(gpu) + "_p" + str(power_values[0]) + "-" + str(power_values[-1]) + "_c" + str(core_values[0]) + "-" + str(core_values[-1]) + "_m" + str(mem_values[0]) + "-" + str(mem_values[-1]) + ".log"
@@ -122,13 +169,28 @@ if(save_file):
 #send first settings to GPU and test that Nvidia commands will 
 #return 0, to make sure we can alter the settings
 print("Trying to send the first settings to GPU. Response from nvidia drivers enabled here to see possible errors")
-output1 = set_core_clk(gpu,gpu_core_limits[0],False)
-#set the lowest memory clock
-output2 = set_mem_clk(gpu,gpu_mem_limits[0],False)
 #power limit test
-output3 = set_gpu_power(gpu,power_limits[0], False)
+output1 = set_gpu_power(gpu,power_limits[0], False)
+#check if there is returncode 4, which means no admin
+if(output1.returncode == 4):
+    print("No admin priviledges, power limit and core absolute clocks can not be set")
+    reported_pl = query_gpu(gpu,"power.limit") #get current power limit
+    if(reported_pl > 0):
+        print("Current power limit " + str(reported_pl) + "W is used")
+    power_values = range(reported_pl,reported_pl+1)# use the current limit for our limits
+    #check that should absolute clocks be set
+    #if low limit is in the offset range <= 500 and high limit is > 500, adjust high to 500 to stay in offset range
+    if(gpu_core_limits[0] <= 500 and gpu_core_limits[1] > 500):
+        core_values = range(gpu_core_limits[0],500+core_step,core_step)
+        #if pure core absolute values were as target those can't be changed so just run the memory iterations
+    elif(gpu_core_limits[0] > 500): #
+        core_values = range(0,1)
+        print("Only memory values are changed, testing the memory values from min to max")
+output2 = set_core_clk(gpu,gpu_core_limits[0],False)
+#set the lowest memory clock
+output3 = set_mem_clk(gpu,gpu_mem_limits[0],True)
 
-if(output1.returncode == 0 and output2.returncode == 0):
+if(output2.returncode == 0 and output3.returncode == 0):
     print("\nInitial settings successfull, testing will start..."); print("Testing iteratively all the combinations:")
     print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W")
     print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]))
@@ -138,7 +200,7 @@ if(output1.returncode == 0 and output2.returncode == 0):
     best_rate = 0
     best_efficiency = 0
     
-    for power in  range(power_limits[0], power_limits[1]+power_step,power_step):
+    for power in power_values:
         #set the next power for testing
         set_gpu_power(gpu,power,True)
         for core in range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step):
@@ -148,16 +210,18 @@ if(output1.returncode == 0 and output2.returncode == 0):
                 #set memory clock
                 set_mem_clk(gpu,mem,True)
                 print("Testing with power limit: " + str(power) + ", core: " + str(core) + ", mem: " + str(mem) + ". Test time: " + str(round(step_time,1)) + "s")
-                time.sleep(step_time) #wait hashrate to stabilize
+                #time.sleep(step_time) #wait hashrate to stabilize
                 #check the hashrate
-                hashrate = get_hashrate(miner,gpu) #miner_power = gpu power reported by miner
-                
-                miner_power=power #update here the true power read 
+                #hashrate = get_hashrate(miner,gpu) #miner_power = gpu power reported by miner
+                #miner_power=power #update here the true power read 
                 #nvidia-smi --query-gpu="power.draw" --format=csv,noheader,nounits  #read power
+        
+                hashrate,reported_power = get_hash_pow(miner,gpu,step_time)
+        
         
                 #convert to requested magnitude
                 hashrate = round(hashrate/result_divider,2)
-                efficiency = round(hashrate/miner_power,3)
+                efficiency = round(hashrate/reported_power,3)
                 #Check if this was the best so far
                 if(hashrate > best_rate):
                     best_rate = hashrate
@@ -170,7 +234,7 @@ if(output1.returncode == 0 and output2.returncode == 0):
                 results_log.append((power,core,mem,hashrate))
                 if(save_file):
                     with open(filename, 'a') as the_file:
-                        the_file.write(str(hashrate) + "\t\t" + str(miner_power) + "\t\t" + str(core) + "\t" + str(mem) + "\t" + str(efficiency) + "\n")
+                        the_file.write(str(hashrate) + "\t\t" + str(reported_power) + "\t\t" + str(core) + "\t" + str(mem) + "\t" + str(efficiency) + "\n")
                 
     #use the best hashrate settings
     print("Test finished")
@@ -191,5 +255,4 @@ if(output1.returncode == 0 and output2.returncode == 0):
     set_gpu_power(gpu,best_settings[3],True)
 
 else:
-    print("Error from Nvidia overclocking settings, exiting...")        
-        
+    print("Error from Nvidia overclocking settings, exiting...")       
