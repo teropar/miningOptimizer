@@ -24,14 +24,13 @@ import time
 ### SETTINGS
 miner = 0 # t-rex = 0, phoenixminer = 1
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
-power_limits = [130,140] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
-power_step = 10 #
-gpu_core_limits = [1300, 1400] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+power_limits = [150,165] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
+power_step = 5 #
+gpu_core_limits = [1300, 1450] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
 gpu_mem_limits = [2100, 2400] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
 step_time = 60 #how many seconds we run each setting
-result_divider = 1000000 #1000 to produce KH/s or 1000000 for MH/s
 save_file = True #write results to a file: results.log
 ###
 
@@ -166,6 +165,7 @@ if(reported_min_pl > 0): #chekc that value is valid
 power_values = range(power_limits[0], power_limits[1]+power_step,power_step)
 #all core values to be tested
 core_values = range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step)
+set_core = True #core clock modifying can be disabled later
 #all mem values to be tested
 mem_values = range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step)
 results_log = [] #store all results in this, currently no used
@@ -181,13 +181,11 @@ if(save_file):
 #return 0, to make sure we can alter the settings
 print("Trying to send the first settings to GPU. Response from nvidia drivers enabled here to see possible errors")
 #power limit test
-output1 = set_gpu_power(gpu,power_limits[0], False)
+power_setup = set_gpu_power(gpu,power_limits[0], False)
 #check if there is returncode 4, which means no admin
-if(output1.returncode == 4):
+if(power_setup.returncode == 4):
     print("No admin priviledges, power limit and core absolute clocks can not be set")
     reported_pl = query_gpu(gpu,"power.limit") #get current power limit
-    if(reported_pl > 0):
-        print("Current power limit " + str(reported_pl) + "W is used")
     power_values = range(reported_pl,reported_pl+1)# use the current limit for our limits
     #check that should absolute clocks be set
     #if low limit is in the offset range <= 500 and high limit is > 500, adjust high to 500 to stay in offset range
@@ -197,15 +195,23 @@ if(output1.returncode == 4):
     elif(gpu_core_limits[0] > 500): #
         core_values = range(0,1)
         print("Only memory values are changed, testing the memory values from min to max")
-output2 = set_core_clk(gpu,gpu_core_limits[0],False)
-#set the lowest memory clock
-output3 = set_mem_clk(gpu,gpu_mem_limits[0],False)
+        set_core = False # disable core clock modifying
+    if(reported_pl > 0):
+        print("Current power limit " + str(reported_pl) + "W is used")
+if(set_core):
+    core_setup = set_core_clk(gpu,gpu_core_limits[0],False)
+    core_returncode = core_setup.returncode
+else:
+    core_returncode = 0 #it's ok, core clock is not modified
 
-if(output2.returncode == 0 and output3.returncode == 0):
+#set the lowest memory clocc
+mem_setup = set_mem_clk(gpu,gpu_mem_limits[0],False)
+
+if(core_returncode == 0 and mem_setup.returncode == 0):
     print("\nInitial settings successfull, testing will start..."); print("Testing iteratively all the combinations:")
-    print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W")
-    print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]))
-    print("GPU memory from " + str(mem_values[0]) + " to " + str(mem_values[-1]))
+    print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W, step " + str(power_step))
+    print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]) + ", step " + str(core_step))
+    print("GPU memory from " + str(mem_values[0]) + " to " + str(mem_values[-1]) + ", step " + str(mem_step))
     test_time = int((int((gpu_core_limits[1] - gpu_core_limits[0])/core_step + 1) * int((gpu_mem_limits[1] - gpu_mem_limits[0])/mem_step + 1) * int((power_limits[1] - power_limits[0])/power_step + 1) * step_time) / 60)
     print("Full test time is " + str(test_time) + "min")
     best_rate = 0
@@ -216,19 +222,14 @@ if(output2.returncode == 0 and output3.returncode == 0):
         set_gpu_power(gpu,power,True)
         for core in range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step):
             #set core clock
-            set_core_clk(gpu,core,True)
+            if(set_core):
+                set_core_clk(gpu,core,True)
             for mem in range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step):
                 #set memory clock
                 set_mem_clk(gpu,mem,True)
                 print("Testing with power limit: " + str(power) + ", core: " + str(core) + ", mem: " + str(mem) + ". Test time: " + str(round(step_time,1)) + "s")
-                #time.sleep(step_time) #wait hashrate to stabilize
-                #check the hashrate
-                #hashrate = get_hashrate(miner,gpu) #miner_power = gpu power reported by miner
-                #miner_power=power #update here the true power read 
-                #nvidia-smi --query-gpu="power.draw" --format=csv,noheader,nounits  #read power
         
-                hashrate,reported_power = get_hash_pow(miner,gpu,step_time)
-        
+                hashrate,reported_power = get_hash_pow(miner,gpu,step_time)       
         
                 #convert to requested magnitude
                 hashrate = round(hashrate/result_divider,2)
