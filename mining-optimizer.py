@@ -24,9 +24,9 @@ import time
 ### SETTINGS
 miner = 0 # t-rex = 0, phoenixminer = 1
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
-power_limits = [150,160] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
+power_limits = [130,140] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 10 #
-gpu_core_limits = [1300, 1500] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+gpu_core_limits = [1300, 1400] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
 gpu_mem_limits = [2100, 2400] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
@@ -35,6 +35,11 @@ result_divider = 1000000 #1000 to produce KH/s or 1000000 for MH/s
 save_file = True #write results to a file: results.log
 ###
 
+if(miner==0): #in t-rex units are h/s
+    result_divider = 1000000
+elif(miner==1):#in phoenixminer units are kh/s
+    result_divider = 1000
+    
 #query information about GPU
 def query_gpu(gpu,query):
     command = "nvidia-smi -i " + str(gpu) + " --query-gpu=\"" + str(query) + "\" --format=csv,noheader,nounits"
@@ -56,28 +61,31 @@ def get_hash_pow(miner, gpu,time_step):
         for i in range(4): 
             time.sleep(time_step/4)
             pow_temp = query_gpu(gpu,"power.draw")
-            print(pow_temp)  #DEBUG
             if(pow_temp > 0):
                 pow_sum = pow_sum + pow_temp
                 divider = divider+1
+            #get current hashrate, t-rex has long averaging time, use only the lastas return value
+            try:
+                #get full summary from miner
+                response = requests.get(API_address)
+            except:
+                print("Connection to miner API failed")
+            if(response.status_code == 200):
+                #if successfull, make the response as a dictionary
+                response_dict = response.json()
+                #extract gpu stats
+                gpu_stats = response_dict["gpus"]
+                #extract hashrate
+                hashrate = gpu_stats[gpu]["hashrate"]
+                print(str(round(hashrate/result_divider,2)) + "  " + str(pow_temp) + "W")
+            else:
+                hashrate = -1
+                print(str(pow_temp) + "W")
+                
         gpu_power = pow_sum/divider
-        try:
-            #get full summary from miner
-            response = requests.get(API_address)
-        except:
-            print("Connection to miner API failed")
-            return -1, gpu_power
-        if(response.status_code == 200):
-            #if successfull, make the response as a dictionary
-            response_dict = response.json()
-            #extract gpu stats
-            gpu_stats = response_dict["gpus"]
-            #extract hashrate
-            hashrate = gpu_stats[gpu]["hashrate"]
             
-            return hashrate,gpu_power
-        else:
-            return -1, gpu_power
+        return hashrate,gpu_power
+
     elif(miner==1): #phoenixminer
         ip = "127.0.0.1"
         port = 3333
@@ -116,7 +124,7 @@ def get_hash_pow(miner, gpu,time_step):
             if(valid):
                 hash_sum = hash_sum + hashrate_tmp
                 divider_hash = divider_hash+1
-                print(hashrate_tmp)
+                print(str(hashrate_tmp/result_divider) + "  " + str(pow_temp) + "W")
             else:
                 valid = True #try to connect again
                 try: #connect to miner
@@ -163,8 +171,8 @@ mem_values = range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step)
 results_log = [] #store all results in this, currently no used
 #open the file   
 if(save_file):
-    localtime = time.localtime(time.time()) #use time and date in filename. h:m:s-d.m.y
-    timestring = str(localtime[3]) + ":" + str(localtime[4]) + ":" + str(localtime[5]) + "-" + str(localtime[2]) + "." + str(localtime[1]) + "." + str(localtime[0])
+    #use time and date in filename. hh:mm:ss-d.m.y
+    timestring = time.strftime("%H:%M:%S_%d.%m.%Y",time.localtime(time.time()))
     filename = "./results_" + str(timestring) + "_miner" + str(miner) + "_gpu" + str(gpu) + "_p" + str(power_values[0]) + "-" + str(power_values[-1]) + "_c" + str(core_values[0]) + "-" + str(core_values[-1]) + "_m" + str(mem_values[0]) + "-" + str(mem_values[-1]) + ".log"
     with open(filename, 'w') as the_file:
         the_file.write("Hashrate\treported W\tcore\tmem\tefficiency (hashrate/W)\n")
@@ -233,7 +241,7 @@ if(output2.returncode == 0 and output3.returncode == 0):
                     best_efficiency = efficiency
                     best_eff_rate = hashrate
                     best_eff_settings = (power,core,mem, efficiency)
-                print("Hashrate: " + str(hashrate) + ", efficiency: " + str(efficiency) + "  (best: " + str(best_rate) + ", with " + str(best_settings[0]) + "/" + str(best_settings[1]) + "/" + str(best_settings[2]) + ", eff: " + str(best_settings[3]) + ")")
+                print("Hashrate: " + str(hashrate) + ", eff.: " + str(efficiency) + "  (best: " + str(best_rate) + ", with " + str(best_settings[0]) + "/" + str(best_settings[1]) + "/" + str(best_settings[2]) + ", eff.: " + str(best_settings[3]) + ")")
                 #save the results
                 results_log.append((power,core,mem,hashrate))
                 if(save_file):
