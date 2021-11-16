@@ -26,9 +26,9 @@ miner = 0 # t-rex = 0, phoenixminer = 1
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
 power_limits = [150,165] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 5 #
-gpu_core_limits = [1300, 1450] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+gpu_core_limits = [1325, 1450] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
-gpu_mem_limits = [2100, 2400] #memory clock offset limits
+gpu_mem_limits = [2100, 2300] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
 step_time = 60 #how many seconds we run each setting
 save_file = True #write results to a file: results.log
@@ -253,7 +253,7 @@ if(core_returncode == 0 and mem_setup.returncode == 0):
     print("Test finished")
     #print("Best settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "   efficiency: " + str(best_settings[3]))
     print("Best hashrate settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_settings[3]))
-    print("Best efficiency settings, power: " + str(best_eff_settings[0]) + ", core: " + str(best_eff_settings[1]) + ", mem: " + str(best_eff_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_eff_settings[3]))
+    print("Best efficiency settings, power: " + str(best_eff_settings[0]) + ", core: " + str(best_eff_settings[1]) + ", mem: " + str(best_eff_settings[2]) + ", hashrate: " + str(best_eff_rate) + "  efficiency: " + str(best_eff_settings[3]))
     print("Writing the best hashrate settings to GPU")
     if(save_file):
         print("Writing results to file " + filename)
