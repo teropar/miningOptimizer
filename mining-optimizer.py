@@ -22,22 +22,19 @@ import requests
 import subprocess
 import time
 ### SETTINGS
-miner = 0 # t-rex = 0, phoenixminer = 1
+miner = 2 # t-rex = 0, phoenixminer = 1, nbminer = 2
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
-power_limits = [150,165] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
+power_limits = [120,125] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 5 #
 gpu_core_limits = [1325, 1450] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
 gpu_mem_limits = [2100, 2300] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
-step_time = 60 #how many seconds we run each setting
+step_time = 30 #how many seconds we run each setting
 save_file = True #write results to a file: results.log
+result_divider = 1000000 #devide the results for readability 1000 = kh, 1000000 = Mh
 ###
 
-if(miner==0): #in t-rex units are h/s
-    result_divider = 1000000
-elif(miner==1):#in phoenixminer units are kh/s
-    result_divider = 1000
     
 #query information about GPU
 def query_gpu(gpu,query):
@@ -50,11 +47,16 @@ def query_gpu(gpu,query):
         print("Did not receive query " + str(query) + "from nvidia-smi")
         return -1
 def get_hash_pow(miner, gpu,time_step):
-    if(miner == 0):
+    if(miner == 0 or miner == 2): #t-rex or nbminer
         #address of the t-rex miner API
-        API_address = "http://127.0.0.1:4067/summary" 
-        divider = 0
+        if(miner == 0):
+            API_address = "http://127.0.0.1:4067/summary" 
+        elif(miner == 2):
+            API_address = "http://0.0.0.0:22333/api/v1/status"
+        divider_pow = 0
+        divider_hash = 0
         pow_sum = 0
+        hash_sum = 0
         #idea is to average four power values
         #hashrate averaging default is 60s in t-rex, so no need to average
         for i in range(4): 
@@ -62,7 +64,7 @@ def get_hash_pow(miner, gpu,time_step):
             pow_temp = query_gpu(gpu,"power.draw")
             if(pow_temp > 0):
                 pow_sum = pow_sum + pow_temp
-                divider = divider+1
+                divider_pow = divider_pow + 1
             #get current hashrate, t-rex has long averaging time, use only the lastas return value
             try:
                 #get full summary from miner
@@ -72,16 +74,23 @@ def get_hash_pow(miner, gpu,time_step):
             if(response.status_code == 200):
                 #if successfull, make the response as a dictionary
                 response_dict = response.json()
-                #extract gpu stats
-                gpu_stats = response_dict["gpus"]
-                #extract hashrate
-                hashrate = gpu_stats[gpu]["hashrate"]
+                if(miner == 0): #t-rex 
+                    ##extract hashrate
+                    hashrate = response_dict["gpus"][gpu]["hashrate"]
+                elif(miner == 2): #nbminer
+                    hashrate = response_dict["miner"]["devices"][gpu]["hashrate_raw"]
+                    hash_sum = hash_sum + hashrate
+                    divider_hash = divider_hash + 1
                 print(str(round(hashrate/result_divider,2)) + "  " + str(pow_temp) + "W")
+                
             else:
                 hashrate = -1
                 print(str(pow_temp) + "W")
-                
-        gpu_power = pow_sum/divider
+        
+        #for nbminer calculate average
+        if(miner == 2):
+            hashrate = hash_sum / divider_hash
+        gpu_power = pow_sum/divider_pow
             
         return hashrate,gpu_power
 
@@ -123,7 +132,7 @@ def get_hash_pow(miner, gpu,time_step):
             if(valid):
                 hash_sum = hash_sum + hashrate_tmp
                 divider_hash = divider_hash+1
-                print(str(hashrate_tmp/result_divider) + "  " + str(pow_temp) + "W")
+                print(str(round(hashrate_tmp/result_divider,2)) + "  " + str(pow_temp) + "W")
             else:
                 valid = True #try to connect again
                 try: #connect to miner
@@ -175,7 +184,7 @@ if(save_file):
     timestring = time.strftime("%H:%M:%S_%d.%m.%Y",time.localtime(time.time()))
     filename = "./results_" + str(timestring) + "_miner" + str(miner) + "_gpu" + str(gpu) + "_p" + str(power_values[0]) + "-" + str(power_values[-1]) + "_c" + str(core_values[0]) + "-" + str(core_values[-1]) + "_m" + str(mem_values[0]) + "-" + str(mem_values[-1]) + ".log"
     with open(filename, 'w') as the_file:
-        the_file.write("Hashrate\treported W\tcore\tmem\tefficiency (hashrate/W)\n")
+        the_file.write("Hashrate\treported W\tpower\tcore\tmem\tefficiency (hashrate/W)\n")
     
 #send first settings to GPU and test that Nvidia commands will 
 #return 0, to make sure we can alter the settings
@@ -247,7 +256,7 @@ if(core_returncode == 0 and mem_setup.returncode == 0):
                 results_log.append((power,core,mem,hashrate))
                 if(save_file):
                     with open(filename, 'a') as the_file:
-                        the_file.write(str(hashrate) + "\t\t" + str(reported_power) + "\t\t" + str(core) + "\t" + str(mem) + "\t" + str(efficiency) + "\n")
+                        the_file.write(str(hashrate) + "\t\t" + str(reported_power) + "\t\t" + str(power) + "\t" + str(core) + "\t" + str(mem) + "\t" + str(efficiency) + "\n")
                 
     #use the best hashrate settings
     print("Test finished")
