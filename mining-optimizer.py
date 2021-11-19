@@ -22,15 +22,15 @@ import requests
 import subprocess
 import time
 ### SETTINGS
-miner = 2 # t-rex = 0, phoenixminer = 1, nbminer = 2
+miner = 0 # t-rex = 0, phoenixminer = 1, nbminer = 2
 gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
-power_limits = [120,125] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
+power_limits = [150,165] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 5 #
-gpu_core_limits = [1325, 1450] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+gpu_core_limits = [1300, 1525] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
 gpu_mem_limits = [2100, 2300] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
-step_time = 30 #how many seconds we run each setting
+step_time = 60 #how many seconds we run each setting
 save_file = True #write results to a file: results.log
 result_divider = 1000000 #devide the results for readability 1000 = kh, 1000000 = Mh
 ###
@@ -58,14 +58,15 @@ def get_hash_pow(miner, gpu,time_step):
         pow_sum = 0
         hash_sum = 0
         #idea is to average four power values
-        #hashrate averaging default is 60s in t-rex, so no need to average
+        #hashrate averaging default is 60s in t-rex, so no need to average,
+        #but nbminer needs averaging
         for i in range(4): 
             time.sleep(time_step/4)
             pow_temp = query_gpu(gpu,"power.draw")
             if(pow_temp > 0):
                 pow_sum = pow_sum + pow_temp
                 divider_pow = divider_pow + 1
-            #get current hashrate, t-rex has long averaging time, use only the lastas return value
+            #get current hashrate, t-rex has long averaging time, use only the last as return value
             try:
                 #get full summary from miner
                 response = requests.get(API_address)
@@ -144,6 +145,17 @@ def get_hash_pow(miner, gpu,time_step):
         sock.close()
         return hashrate,gpu_power
         
+#reset possible core clock limits to default and offset to zero
+#also this checks that do we have admin priviledges, if not any other problem with the command
+def init_core_clocks(gpu,catch_output):
+    #set core clock limits to defaults
+    command = "nvidia-smi -i " + str(gpu) + " -rgc" #if no other error, this will return 4 if no admin
+    output1 = subprocess.run(command, shell=True,capture_output=catch_output)
+    #set core clock offset to default (0)
+    command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[4]=0\""
+    output2 = subprocess.run(command, shell=True,capture_output=catch_output)
+    return output1,output2
+    
 #use capture_output=True in subprocess.run() to remove output 
 def set_gpu_power(gpu,power,catch_output):
     command = "nvidia-smi -i " + str(gpu) + " -pl " + str(power)
@@ -160,15 +172,15 @@ def set_mem_clk(gpu,clock,catch_output):
     command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[4]=" + str(clock) + "\""
     return subprocess.run(command, shell=True,capture_output=catch_output)
 
-#check min power limit of gpu
+#check that the given power limits are both higher than the real GPU minimum
 reported_min_pl = query_gpu(gpu,"power.min_limit")
-if(reported_min_pl > 0): #chekc that value is valid
+if(reported_min_pl > 0): #check that value is valid
     if(power_limits[0] < reported_min_pl):
         power_limits[0] = reported_min_pl
-        print("Reported min gpu power is smaller than requested limits, adjusting..")
+        print("Reported min gpu power is smaller than requested min limit, adjusting..")
     if(power_limits[1] < reported_min_pl):
         power_limits[1] = reported_min_pl
-        print("Reported min gpu power is smaller than requested limits, adjusting..")
+        print("Reported min gpu power is smaller than requested max limit, adjusting..")
         
 #all power values to be tested
 power_values = range(power_limits[0], power_limits[1]+power_step,power_step)
@@ -178,27 +190,31 @@ set_core = True #core clock modifying can be disabled later
 #all mem values to be tested
 mem_values = range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step)
 results_log = [] #store all results in this, currently no used
-#open the file   
-if(save_file):
-    #use time and date in filename. hh:mm:ss-d.m.y
-    timestring = time.strftime("%H:%M:%S_%d.%m.%Y",time.localtime(time.time()))
-    filename = "./results_" + str(timestring) + "_miner" + str(miner) + "_gpu" + str(gpu) + "_p" + str(power_values[0]) + "-" + str(power_values[-1]) + "_c" + str(core_values[0]) + "-" + str(core_values[-1]) + "_m" + str(mem_values[0]) + "-" + str(mem_values[-1]) + ".log"
-    with open(filename, 'w') as the_file:
-        the_file.write("Hashrate\treported W\tpower\tcore\tmem\tefficiency (hashrate/W)\n")
-    
+#check if core clock lower limit is in offset zone and higher limit at absolute zone, 
+#we have to reset the offset when changing to absolutes
+if(core_values[0] <= 500 and core_values[-1] > 500):
+    core_offset2absolute = True
+else:
+    core_offset2absolute = False
 #send first settings to GPU and test that Nvidia commands will 
 #return 0, to make sure we can alter the settings
-print("Trying to send the first settings to GPU. Response from nvidia drivers enabled here to see possible errors")
+print("Initializing core clock offset and absolutes, please check the output if any errors")
 #power limit test
-power_setup = set_gpu_power(gpu,power_limits[0], False)
+#power_setup = set_gpu_power(gpu,power_limits[0], False)
+
+#set core clocks to defaults, nvidia-smi reset the low and high limits and nvidia-settings set clock offset to zero
+#nvidia-smi needs admin, if no other errors and no admin returncode is 4
+c_absolute_set, c_offset_set = init_core_clocks(gpu,False)
+# test also memory setup, set already the lowest memory clock
+mem_set = set_mem_clk(gpu,gpu_mem_limits[0],False)
 #check if there is returncode 4, which means no admin
-if(power_setup.returncode == 4):
+if(c_absolute_set.returncode == 4):
     print("No admin priviledges, power limit and core absolute clocks can not be set")
     reported_pl = query_gpu(gpu,"power.limit") #get current power limit
     power_values = range(reported_pl,reported_pl+1)# use the current limit for our limits
     #check that should absolute clocks be set
     #if low limit is in the offset range <= 500 and high limit is > 500, adjust high to 500 to stay in offset range
-    if(gpu_core_limits[0] <= 500 and gpu_core_limits[1] > 500):
+    if(core_values[0] <= 500 and core_values[-1] > 500):
         core_values = range(gpu_core_limits[0],500+core_step,core_step)
         #if pure core absolute values were as target those can't be changed so just run the memory iterations
     elif(gpu_core_limits[0] > 500): #
@@ -207,34 +223,38 @@ if(power_setup.returncode == 4):
         set_core = False # disable core clock modifying
     if(reported_pl > 0):
         print("Current power limit " + str(reported_pl) + "W is used")
-if(set_core):
-    core_setup = set_core_clk(gpu,gpu_core_limits[0],False)
-    core_returncode = core_setup.returncode
-else:
-    core_returncode = 0 #it's ok, core clock is not modified
 
-#set the lowest memory clocc
-mem_setup = set_mem_clk(gpu,gpu_mem_limits[0],False)
-
-if(core_returncode == 0 and mem_setup.returncode == 0):
+if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
+    #open the file   
+    if(save_file):
+        #use time and date in filename. hh:mm:ss-d.m.y
+        timestring = time.strftime("%H:%M:%S_%d.%m.%Y",time.localtime(time.time()))
+        filename = "./results_" + str(timestring) + "_miner" + str(miner) + "_gpu" + str(gpu) + "_p" + str(power_values[0]) + "-" + str(power_values[-1]) + "_c" + str(core_values[0]) + "-" + str(core_values[-1]) + "_m" + str(mem_values[0]) + "-" + str(mem_values[-1]) + ".log"
+        with open(filename, 'w') as the_file:
+            the_file.write("Hashrate\treported W\tpower\tcore\tmem\tefficiency (hashrate/W)\n")
+            
     print("\nInitial settings successfull, testing will start..."); print("Testing iteratively all the combinations:")
-    print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W, step " + str(power_step))
-    print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]) + ", step " + str(core_step))
-    print("GPU memory from " + str(mem_values[0]) + " to " + str(mem_values[-1]) + ", step " + str(mem_step))
-    test_time = int((int((gpu_core_limits[1] - gpu_core_limits[0])/core_step + 1) * int((gpu_mem_limits[1] - gpu_mem_limits[0])/mem_step + 1) * int((power_limits[1] - power_limits[0])/power_step + 1) * step_time) / 60)
+    print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W, using step " + str(power_step))
+    print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]) + ", using step " + str(core_step))
+    print("GPU memory from " + str(mem_values[0]) + " to " + str(mem_values[-1]) + ", using step " + str(mem_step))
+    #test_time = int((int((gpu_core_limits[1] - gpu_core_limits[0])/core_step + 1) * int((gpu_mem_limits[1] - gpu_mem_limits[0])/mem_step + 1) * int((power_limits[1] - power_limits[0])/power_step + 1) * step_time) / 60)
+    test_time = int(len(core_values) * len(mem_values) * len(power_values) * step_time / 60)
     print("Full test time is " + str(test_time) + "min")
     best_rate = 0
     best_efficiency = 0
-    
+    previous_core = 0
     for power in power_values:
         #set the next power for testing
         set_gpu_power(gpu,power,True)
-        for core in range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step):
+        for core in core_values: #range(gpu_core_limits[0],gpu_core_limits[1]+core_step,core_step):
             #set core clock
-            if(set_core):
-                set_core_clk(gpu,core,True)
-            for mem in range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step):
-                #set memory clock
+            if(set_core): #change from core offsets to absolutes, offset should be reseted
+                if(core_offset2absolute and previous_core <= 500 and core > 500):
+                    init_core_clocks(gpu,True)
+                previous_core = core #needed above only
+                set_core_clk(gpu,core,True) #set the next core clock
+            for mem in mem_values: #range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step):
+                #set next memory clock
                 set_mem_clk(gpu,mem,True)
                 print("Testing with power limit: " + str(power) + ", core: " + str(core) + ", mem: " + str(mem) + ". Test time: " + str(round(step_time,1)) + "s")
         
