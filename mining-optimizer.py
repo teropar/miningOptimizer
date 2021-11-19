@@ -147,30 +147,45 @@ def get_hash_pow(miner, gpu,time_step):
         
 #reset possible core clock limits to default and offset to zero
 #also this checks that do we have admin priviledges, if not any other problem with the command
-def init_core_clocks(gpu,catch_output):
+def init_core_clocks(gpu,catch_output,perf_levels):
     #set core clock limits to defaults
     command = "nvidia-smi -i " + str(gpu) + " -rgc" #if no other error, this will return 4 if no admin
     output1 = subprocess.run(command, shell=True,capture_output=catch_output)
     #set core clock offset to default (0)
-    command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[4]=0\""
+    command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[" + str(perf_levels) + "]=0\""
     output2 = subprocess.run(command, shell=True,capture_output=catch_output)
     return output1,output2
-    
+#check how many performance levels gpu have in nvidia-settings
+def check_perf_levels(gpu):
+    command = "nvidia-settings -q [gpu:" + str(gpu) + "]/GPUPerfModes"
+    response = subprocess.run([command], shell=True, capture_output=True)
+    if(response.returncode == 0): #command executed correctly
+        if(str(response.stdout).find("perf=3")): # 4 levels
+            return 4
+        elif(str(response.stdout).find("perf=2") > -1): # 3 levels
+            return 3
+        elif(str(response.stdout).find("perf=1") > -1): # 2 levels
+            return 2
+        elif(str(response.stdout).find("perf=0") > -1): # 1 level only?
+            return 1
+    return -1 # unknown
 #use capture_output=True in subprocess.run() to remove output 
 def set_gpu_power(gpu,power,catch_output):
     command = "nvidia-smi -i " + str(gpu) + " -pl " + str(power)
     return subprocess.run(command, shell=True,capture_output=catch_output)
-def set_core_clk(gpu,clock,catch_output):
+def set_core_clk(gpu,clock,catch_output,perf_levels):
     if(clock <= 500): #values of 500 or below are considered as offset
-        command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[4]=" + str(clock) + "\""
+        command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[" + str(perf_levels) + "]=" + str(clock) + "\""
         return subprocess.run(command, shell=True,capture_output=catch_output)
     else:
         command = "nvidia-smi -i " + str(gpu) + " --lock-gpu-clocks=" + str(clock) + "," + str(clock)
         return subprocess.run(command, shell=True,capture_output=catch_output)
     
-def set_mem_clk(gpu,clock,catch_output):
-    command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[4]=" + str(clock) + "\""
+def set_mem_clk(gpu,clock,catch_output,perf_levels):
+    command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[" + str(perf_levels) +"]=" + str(clock) + "\""
     return subprocess.run(command, shell=True,capture_output=catch_output)
+
+perf_levels = 4 #how many performance levels in gpu, RTX = 4, using as default. This is checked later
 
 #check that the given power limits are both higher than the real GPU minimum
 reported_min_pl = query_gpu(gpu,"power.min_limit")
@@ -199,14 +214,17 @@ else:
 #send first settings to GPU and test that Nvidia commands will 
 #return 0, to make sure we can alter the settings
 print("Initializing core clock offset and absolutes, please check the output if any errors")
-#power limit test
-#power_setup = set_gpu_power(gpu,power_limits[0], False)
+
+#check how many performance levels gpu has
+levels_tmp = check_perf_levels(gpu)
+if(levels_tmp != -1): #unknown, use default
+    perf_levels = levels_tmp
 
 #set core clocks to defaults, nvidia-smi reset the low and high limits and nvidia-settings set clock offset to zero
 #nvidia-smi needs admin, if no other errors and no admin returncode is 4
-c_absolute_set, c_offset_set = init_core_clocks(gpu,False)
+c_absolute_set, c_offset_set = init_core_clocks(gpu,False,perf_levels)
 # test also memory setup, set already the lowest memory clock
-mem_set = set_mem_clk(gpu,gpu_mem_limits[0],False)
+mem_set = set_mem_clk(gpu,gpu_mem_limits[0],False,perf_levels)
 #check if there is returncode 4, which means no admin
 if(c_absolute_set.returncode == 4):
     print("No admin priviledges, power limit and core absolute clocks can not be set")
@@ -250,12 +268,12 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
             #set core clock
             if(set_core): #change from core offsets to absolutes, offset should be reseted
                 if(core_offset2absolute and previous_core <= 500 and core > 500):
-                    init_core_clocks(gpu,True)
+                    init_core_clocks(gpu,True,perf_levels)
                 previous_core = core #needed above only
-                set_core_clk(gpu,core,True) #set the next core clock
+                set_core_clk(gpu,core,True,perf_levels) #set the next core clock
             for mem in mem_values: #range(gpu_mem_limits[0],gpu_mem_limits[1]+mem_step,mem_step):
                 #set next memory clock
-                set_mem_clk(gpu,mem,True)
+                set_mem_clk(gpu,mem,True,perf_levels)
                 print("Testing with power limit: " + str(power) + ", core: " + str(core) + ", mem: " + str(mem) + ". Test time: " + str(round(step_time,1)) + "s")
         
                 hashrate,reported_power = get_hash_pow(miner,gpu,step_time)       
@@ -290,9 +308,9 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
             the_file.write("Best hash rate settings, power: " + str(best_settings[0]) + ", core: " + str(best_settings[1]) + ", mem: " + str(best_settings[2]) + ", hashrate: " + str(best_rate) + "  efficiency: " + str(best_settings[3]) + "\n")
             the_file.write("Best efficiency settings, power: " + str(best_eff_settings[0]) + ", core: " + str(best_eff_settings[1]) + ", mem: " + str(best_eff_settings[2]) + ", hashrate: " + str(best_eff_rate) + "  efficiency: " + str(best_eff_settings[3]) + "\n")
     #set the best core      
-    set_core_clk(gpu,best_settings[1],True)
+    set_core_clk(gpu,best_settings[1],True,perf_levels)
     #and set the best memory clock
-    set_mem_clk(gpu,best_settings[2],True)
+    set_mem_clk(gpu,best_settings[2],True,perf_levels)
     #best power 
     set_gpu_power(gpu,best_settings[3],True)
 
