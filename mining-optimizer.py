@@ -23,7 +23,8 @@ import subprocess
 import time
 ### SETTINGS
 miner = 0 # t-rex = 0, phoenixminer = 1, nbminer = 2
-gpu = 0 #which GPU we are testing 0,1,2,3, or .. (only one)
+gpu = 0 #which GPU (in HW) we are testing 0,1,2,3, or .. (only one)
+miner_gpu = gpu #in miner the gpu id can be different, e.g if running some Nvidia GPU with other miner
 power_limits = [150,165] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
 power_step = 5 #
 gpu_core_limits = [1300, 1525] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
@@ -39,14 +40,14 @@ result_divider = 1000000 #devide the results for readability 1000 = kh, 1000000 
 #query information about GPU
 def query_gpu(gpu,query):
     command = "nvidia-smi -i " + str(gpu) + " --query-gpu=\"" + str(query) + "\" --format=csv,noheader,nounits"
-    response = subprocess.run(command, shell=True,capture_output=True,text=True)
+    response = subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
     if(response.returncode == 0):
         value = float(response.stdout[0:-1]) #remove the \n from the string
         return int(round(value,0))
     else:
         print("Did not receive query " + str(query) + "from nvidia-smi")
         return -1
-def get_hash_pow(miner, gpu,time_step):
+def get_hash_pow(miner, gpu,miner_gpu,time_step):
     if(miner == 0 or miner == 2): #t-rex or nbminer
         #address of the t-rex miner API
         if(miner == 0):
@@ -77,9 +78,9 @@ def get_hash_pow(miner, gpu,time_step):
                 response_dict = response.json()
                 if(miner == 0): #t-rex 
                     ##extract hashrate
-                    hashrate = response_dict["gpus"][gpu]["hashrate"]
+                    hashrate = response_dict["gpus"][miner_gpu]["hashrate"]
                 elif(miner == 2): #nbminer
-                    hashrate = response_dict["miner"]["devices"][gpu]["hashrate_raw"]
+                    hashrate = response_dict["miner"]["devices"][miner_gpu]["hashrate_raw"]
                     hash_sum = hash_sum + hashrate
                     divider_hash = divider_hash + 1
                 print(str(round(hashrate/result_divider,2)) + "  " + str(pow_temp) + "W")
@@ -129,7 +130,7 @@ def get_hash_pow(miner, gpu,time_step):
                 print('Recieveing data was aborted')
                 valid = False
             message = json.loads(data)
-            hashrate_tmp = int(message["result"][3].split(";")[gpu])
+            hashrate_tmp = int(message["result"][3].split(";")[miner_gpu])
             if(valid):
                 hash_sum = hash_sum + hashrate_tmp
                 divider_hash = divider_hash+1
@@ -150,15 +151,15 @@ def get_hash_pow(miner, gpu,time_step):
 def init_core_clocks(gpu,catch_output,perf_levels):
     #set core clock limits to defaults
     command = "nvidia-smi -i " + str(gpu) + " -rgc" #if no other error, this will return 4 if no admin
-    output1 = subprocess.run(command, shell=True,capture_output=catch_output)
+    output1 = subprocess.run(command, shell=True)
     #set core clock offset to default (0)
     command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[" + str(perf_levels) + "]=0\""
-    output2 = subprocess.run(command, shell=True,capture_output=catch_output)
+    output2 = subprocess.run(command, shell=True)
     return output1,output2
 #check how many performance levels gpu have in nvidia-settings
 def check_perf_levels(gpu):
     command = "nvidia-settings -q [gpu:" + str(gpu) + "]/GPUPerfModes"
-    response = subprocess.run([command], shell=True, capture_output=True)
+    response = subprocess.run([command], shell=True, stdout=subprocess.PIPE,universal_newlines=True)
     if(response.returncode == 0): #command executed correctly
         if(str(response.stdout).find("perf=3")): # 4 levels
             return 4
@@ -172,18 +173,18 @@ def check_perf_levels(gpu):
 #use capture_output=True in subprocess.run() to remove output 
 def set_gpu_power(gpu,power,catch_output):
     command = "nvidia-smi -i " + str(gpu) + " -pl " + str(power)
-    return subprocess.run(command, shell=True,capture_output=catch_output)
+    return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
 def set_core_clk(gpu,clock,catch_output,perf_levels):
     if(clock <= 500): #values of 500 or below are considered as offset
         command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[" + str(perf_levels) + "]=" + str(clock) + "\""
-        return subprocess.run(command, shell=True,capture_output=catch_output)
+        return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
     else:
         command = "nvidia-smi -i " + str(gpu) + " --lock-gpu-clocks=" + str(clock) + "," + str(clock)
-        return subprocess.run(command, shell=True,capture_output=catch_output)
+        return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
     
 def set_mem_clk(gpu,clock,catch_output,perf_levels):
     command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[" + str(perf_levels) +"]=" + str(clock) + "\""
-    return subprocess.run(command, shell=True,capture_output=catch_output)
+    return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
 
 perf_levels = 4 #how many performance levels in gpu, RTX = 4, using as default. This is checked later
 
@@ -276,7 +277,7 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
                 set_mem_clk(gpu,mem,True,perf_levels)
                 print("Testing with power limit: " + str(power) + ", core: " + str(core) + ", mem: " + str(mem) + ". Test time: " + str(round(step_time,1)) + "s")
         
-                hashrate,reported_power = get_hash_pow(miner,gpu,step_time)       
+                hashrate,reported_power = get_hash_pow(miner,gpu,miner_gpu,step_time)       
         
                 #convert to requested magnitude
                 hashrate = round(hashrate/result_divider,2)
