@@ -25,18 +25,21 @@ import time
 miner = 0 # t-rex = 0, phoenixminer = 1, nbminer = 2
 gpu = 0 #which GPU (in HW) we are testing 0,1,2,3, or .. (only one)
 miner_gpu = gpu #in miner the gpu id can be different, e.g if running some Nvidia GPU with other miner
-power_limits = [150,165] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
-power_step = 5 #
+power_limits = [150,160] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clock this might be better to use just as upper limits (low=high)
+power_step = 5 #power to increase in each power step
 gpu_core_limits = [1300, 1525] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core offset to increase in each step
 gpu_mem_limits = [2100, 2300] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
 step_time = 60 #how many seconds we run each setting
 save_file = True #write results to a file: results.log
-result_divider = 1000000 #devide the results for readability 1000 = kh, 1000000 = Mh
+result_divider = 1000000 #devide the results for readability 1000 = kh, 1000000 = Mh, do not divide = 1
 ###
+TREX_API = "http://127.0.0.1:4067/summary" # t-rex API address
+PHOENIX_PORT =  3333 #Phoenixminer API port, HiveOS uses 3335? Default port 3333. IP default: 127.0.0.1
+NBMINER_API = "http://0.0.0.0:22333/api/v1/status" # nbminer API address
 
-    
+
 #query information about GPU
 def query_gpu(gpu,query):
     command = "nvidia-smi -i " + str(gpu) + " --query-gpu=\"" + str(query) + "\" --format=csv,noheader,nounits"
@@ -49,11 +52,11 @@ def query_gpu(gpu,query):
         return -1
 def get_hash_pow(miner, gpu,miner_gpu,time_step):
     if(miner == 0 or miner == 2): #t-rex or nbminer
-        #address of the t-rex miner API
-        if(miner == 0):
-            API_address = "http://127.0.0.1:4067/summary" 
-        elif(miner == 2):
-            API_address = "http://0.0.0.0:22333/api/v1/status"
+        
+        if(miner == 0): #address of the t-rex miner API
+            API_address = TREX_API
+        elif(miner == 2): #nbmier
+            API_address = NBMINER_API
         divider_pow = 0
         divider_hash = 0
         pow_sum = 0
@@ -71,40 +74,44 @@ def get_hash_pow(miner, gpu,miner_gpu,time_step):
             try:
                 #get full summary from miner
                 response = requests.get(API_address)
+                if(response.status_code == 200):
+                    #if successfull, make the response as a dictionary
+                    response_dict = response.json()
+                    if(miner == 0): #t-rex 
+                        ##extract hashrate, use only the last
+                        hash_tmp = response_dict["gpus"][miner_gpu]["hashrate"]
+                        hash_sum = hash_tmp
+                        divider_hash = 1
+                    elif(miner == 2): #nbminer
+                        hash_tmp = response_dict["miner"]["devices"][miner_gpu]["hashrate_raw"]
+                        hash_sum = hash_sum + hash_tmp
+                        divider_hash = divider_hash + 1
+                    print(str(round(hash_tmp/result_divider,2)) + "  " + str(pow_temp) + "W")
+                    
+                else:
+                    print(str(pow_temp) + "W")
             except:
-                print("Connection to miner API failed")
-            if(response.status_code == 200):
-                #if successfull, make the response as a dictionary
-                response_dict = response.json()
-                if(miner == 0): #t-rex 
-                    ##extract hashrate
-                    hashrate = response_dict["gpus"][miner_gpu]["hashrate"]
-                elif(miner == 2): #nbminer
-                    hashrate = response_dict["miner"]["devices"][miner_gpu]["hashrate_raw"]
-                    hash_sum = hash_sum + hashrate
-                    divider_hash = divider_hash + 1
-                print(str(round(hashrate/result_divider,2)) + "  " + str(pow_temp) + "W")
-                
-            else:
-                hashrate = -1
+                print("Connection to miner API failed, check miner and port")
                 print(str(pow_temp) + "W")
         
-        #for nbminer calculate average
-        if(miner == 2):
+        #calculate average
+        if(divider_hash > 0):
             hashrate = hash_sum / divider_hash
+        else:
+            hashrate = 0
         gpu_power = pow_sum/divider_pow
             
         return hashrate,gpu_power
 
     elif(miner==1): #phoenixminer
         ip = "127.0.0.1"
-        port = 3333
+        port = PHOENIX_PORT
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_address = (ip,port)
         try: #connect to miner
             sock.connect(server_address)
         except:
-            print('Miner socket ' + str(ip) + ':' + str(port) + ' is closed')
+            print("Miner socket " + str(ip) + ':' + str(port) + " has no connection, check miner and port")
         divider_hash = 0
         divider_pow = 0
         pow_sum = 0
@@ -122,26 +129,30 @@ def get_hash_pow(miner, gpu,miner_gpu,time_step):
             try:
                 sock.sendall(request)
             except:
-                print('Sending data was aborted')
+                print('Sending data request to miner was aborted')
                 valid = False
             try:
                 data = sock.recv(512)
             except:
-                print('Recieveing data was aborted')
+                print('Receiving data was aborted')
                 valid = False
-            message = json.loads(data)
-            hashrate_tmp = int(message["result"][3].split(";")[miner_gpu])
             if(valid):
+                message = json.loads(data)
+                hashrate_tmp = int(message["result"][3].split(";")[miner_gpu])
                 hash_sum = hash_sum + hashrate_tmp
                 divider_hash = divider_hash+1
                 print(str(round(hashrate_tmp/result_divider,2)) + "  " + str(pow_temp) + "W")
             else:
                 valid = True #try to connect again
+                sock.close()
                 try: #connect to miner
                     sock.connect(server_address)
                 except:
-                    print('Miner socket ' + str(ip) + ':' + str(port) + ' is closed')
-        hashrate = hash_sum/divider_hash
+                    print('Miner socket ' + str(ip) + ':' + str(port) + ' has no connection, check miner and port')
+        if(divider_hash > 0):
+            hashrate = hash_sum/divider_hash
+        else:
+            hashrate = 0
         gpu_power = pow_sum/divider_pow
         sock.close()
         return hashrate,gpu_power
@@ -259,8 +270,8 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
     #test_time = int((int((gpu_core_limits[1] - gpu_core_limits[0])/core_step + 1) * int((gpu_mem_limits[1] - gpu_mem_limits[0])/mem_step + 1) * int((power_limits[1] - power_limits[0])/power_step + 1) * step_time) / 60)
     test_time = int(len(core_values) * len(mem_values) * len(power_values) * step_time / 60)
     print("Full test time is " + str(test_time) + "min")
-    best_rate = 0
-    best_efficiency = 0
+    best_rate = -1
+    best_efficiency = -1
     previous_core = 0
     for power in power_values:
         #set the next power for testing
