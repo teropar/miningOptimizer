@@ -1,8 +1,8 @@
 # miningOptimizer
 
-This Python code iteratively tests mining hashrate on Nvidia GPUs with different overclocking settings. Settings limits should be set: low limit, high limit, and a step. The settings are applied for GPU power, GPU core clock and GPU memory clock. If the core clock setting is 500 or lower, it is considered as offset, while higher values are absolute clocks. Multiple GPUs can be tested sequentally (same limits for all the GPUs). For each GPU, first, power limit and core clock is locked and memory settings are tested from low limit to high limit. After memory high limit is reached, the core clock is increased by the predefined step and memory iteration start from the low limit again etc.
+This Python code iteratively tests mining hashrate on Nvidia GPUs with different overclocking settings. These setting limits should be set: low limit, high limit, and a step. The settings are applied for GPU power, GPU core clock and GPU memory clock. If the core clock setting is 500 or lower, it is considered as offset, while higher values are absolute clocks. Multiple GPUs can be tested sequentally (same limits for all the GPUs). For each GPU, first, power limit and core clock is locked and memory settings are tested from low limit to high limit. After memory high limit is reached, the core clock is increased by the predefined step and memory iteration start from the low limit again etc.
 
-After the GPU test is completed, the best settings are set on the GPU. All the results can be saved on a file.
+Current hashrate and power are printed continuously on terminal. Program is reading the hashrate using a miner API and GPU power is read using Nvidia API (nvidia-smi). After the GPU test is completed, the best settings are set on the GPU. All the results can be saved on a file.
 
 Currently support these miners: t-rex, Phoenixminer, Nbminer
 
