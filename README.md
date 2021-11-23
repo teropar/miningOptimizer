@@ -23,3 +23,7 @@ Tested with:
 
 Python modules:
 socket, json, requests, subprocess, time
+
+USAGE:
+- open the miningOptimizer.py file with some text editor and edit the settings for your needs, save the changes
+- on command prompt, type "sudo python3 miningOptimizer.py"
