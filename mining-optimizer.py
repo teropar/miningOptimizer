@@ -278,6 +278,10 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
             the_file.write("Hashrate\treported W\tpower\tcore\tmem\tefficiency (hashrate/W)\n")
             
     print("\nInitial settings successfull, testing will start..."); print("Testing iteratively all the combinations:")
+    if(len(gpus) == 1):
+        print("GPU " + str(gpus[0]))
+    else:
+        print("GPUs from GPU " + str(gpus[0]) + " to GPU " + str(gpus[-1]))
     print("GPU power from " + str(power_values[0]) + "W to " + str(power_values[-1]) + "W, using step " + str(power_step))
     print("GPU core from " + str(core_values[0]) + " to " + str(core_values[-1]) + ", using step " + str(core_step))
     print("GPU memory from " + str(mem_values[0]) + " to " + str(mem_values[-1]) + ", using step " + str(mem_step))
@@ -290,7 +294,7 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
     for gpu, miner_gpu in zip(gpus,miner_gpus):
         if(save_file):
             with open(filename, 'a') as the_file:
-                the_file.write("GPU " + str(gpu))
+                the_file.write("GPU \n" + str(gpu))
 
         for power in power_values:
             #set the next power for testing
