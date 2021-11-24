@@ -1,12 +1,12 @@
 # miningOptimizer v0.5
 
-This Python code iteratively tests mining hashrate on Nvidia GPUs with different overclocking settings. These setting limits should be set: low limit, high limit, and a step. The settings are applied for GPU power, GPU core clock and GPU memory clock. If the core clock setting is 500 or lower, it is considered as offset, while higher values are absolute clocks. Multiple GPUs can be tested sequentally (same limits for all the GPUs). For each GPU, first, power limit and core clock is locked and memory settings are tested from low limit to high limit. After memory high limit is reached, the core clock is increased by the predefined step and memory iteration start from the low limit again and when core high limit is reached, power is increased, and so on.
+This Python code iteratively tests mining hashrate on Nvidia GPUs with different overclocking settings. These setting limits should be set: low limit, high limit, and a step. The settings are applied for GPU power, GPU core clock and GPU memory clock. If the core clock setting is 500 or lower, it is considered as offset, while higher values are absolute clocks. Tests will run on predefined GPUs, so that multiple GPUs will be tested sequentally (same limits for all the GPUs). For each GPU, first, power limit and core clock is locked and memory settings are tested from low limit to high limit. After memory high limit is reached, the core clock is increased by the predefined step and memory iteration start from the low limit again and when core high limit is reached, power is increased, and so on.
 
 Current hashrate and power are printed continuously on terminal. Program is reading the hashrate using a miner API and GPU power is read using Nvidia API (nvidia-smi). After the GPU test is completed, the best settings are set on the GPU. All the results can be saved also on a file.
 
 Currently support these miners: t-rex, Phoenixminer, Nbminer
 
-The code will use 'nvidia-smi' and 'nvidia-settings' which should come with Nvidia drivers in Linux. Linux ONLY!
+The code will use 'nvidia-smi' and 'nvidia-settings' which should come with Nvidia drivers in Linux. The 'nvidia-settings' program is Linux only, so this code will run correctly ONLY in Linux!
 
 Admin priviledges needed for:
  - Setting GPU power
@@ -27,3 +27,6 @@ socket, json, requests, subprocess, time
 USAGE:
 - open the miningOptimizer.py file with some text editor and edit the settings for your needs, save the changes
 - on command prompt, type "sudo python3 miningOptimizer.py"
+
+SUPPORT
+- report bugs or request new features send email git.teropar@gmail.com
