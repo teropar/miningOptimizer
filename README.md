@@ -31,7 +31,7 @@ USAGE:
 ISSUES:
 
 - Currently tested only with RTX3060Ti and RTX3070. Mixing new and old generation 
-GPUs in the testing set may be or propably will cause problems. 
+GPUs in the testing set may or propably will cause problems. 
 
 SUPPORT:
-- report bugs or request new features send email git.teropar@gmail.com
+- report bugs or request new features, send email git.teropar@gmail.com
