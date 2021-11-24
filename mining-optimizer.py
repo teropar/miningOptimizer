@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+v0.5
 
 This Python code iteratively tests mining hashrate on Nvidia GPUs with 
 different overclocking settings. Settings limits should be set: low limit, high 
@@ -11,6 +12,9 @@ sequentally (same limits for all the GPUs). For each GPU, first, power limit
 and core clock is locked and memory settings are tested from low limit to high 
 limit. After memory high limit is reached, the core clock is increased by the 
 predefined step and memory iteration start from the low limit again etc.
+
+Currently tested only with RTX3060Ti and RTX3070. Mixing new and old generation 
+GPUs in the testing set may be or propably will cause problems. 
 
 After the GPU test is completed, the best settings are set on the GPU. All the 
 results can be saved on a file.
@@ -27,28 +31,36 @@ Nvidia drivers in Linux. Linux ONLY!
 # No admin needed for:
  - Setting core clock offset
  - Setting memory clock offset
+ 
+ This optimizer was helpful, you increased your hashrate? Please donate:
+ ETH: 0x97F302dfEa4452296787A8f21F726892ed792Be9
+ BTC: bc1qhvmxzat4hlyxn3kxsykct42wtlx6hhnacpq3ut
+ XLM: GAE3WSWOPMEGZTC56SV4A4SLEJK4GJF4AW7M6UER3RSDTUOBAM4NZGLZ
+ ETC: 0x4aE0Cdd97efd4E8Ec79CCF737b20C25A76e4aeAC
 """
 
 ### SETTINGS
 miner = 0 # t-rex = 0, phoenixminer = 1, nbminer = 2
 gpus = [0] #which Nvidia GPU id (in HW) we will be testing [0,1,2,3,...] comma separated list (square brackets)
-miner_gpus = gpus #in miner the gpu id can be different, e.g if running some lower HW id Nvidia GPUs on other miner. Comma separated list (square brackets] Default: miner_gpus=gpus
-power_limits = [150,160] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clocks this might be better to use just as upper limits (low=high)
+miner_gpus = gpus #GPU id on miner. On miner the gpu id can be different, e.g if running some lower HW id Nvidia GPUs on other miner. Comma separated list (square brackets] Default: miner_gpus=gpus
+power_limits = [115,125] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clocks this might be better to use just as upper limits (low=high)
 power_step = 5 #power to increase in each power step
-gpu_mem_limits = [2100, 2300] #memory clock offset limits
+gpu_mem_limits = [1500, 2300] #memory clock offset limits
 mem_step = 100 #memory clock to increase in each step
-gpu_core_limits = [1300, 1525] #core clock [low,hig] offset limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
+gpu_core_limits = [1300, 1500] #core clock [low,high] limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core clock to increase in each step
-step_time = 60 #how many seconds we run each setting to allow hashrate convergence
+step_time = 60 #how many seconds we run each setting to allow the hashrate convergence
 save_file = True #write results to a file named: 'time_miner_powerlimits_corelimits_memlimits.log
 result_divider = 1000 #divide the results for readability. 1000 = kh, 1000000 = Mh, do not divide = 1
 ## Miner API Settings
 TREX_API = "http://127.0.0.1:4067/summary" # t-rex API address. Default http://127.0.0.1:4067/summary
-PHOENIX_PORT =  3333 #Phoenixminer API port, HiveOS uses 3335? Default port 3333. IP default: 127.0.0.1
+PHOENIX_PORT =  3333 #Phoenixminer API port, HiveOS uses 3335? Default port 3333. Default IP: 127.0.0.1
 NBMINER_API = "http://0.0.0.0:22333/api/v1/status" # nbminer API address. Default http://0.0.0.0:22333/api/v1/status
 ###
 
-perf_levels = 4 #how many performance levels in gpu, RTX = 4, using as default. This is checked later in this code
+#how many performance levels in gpu, RTX = 4, using 4 as default. This is checked later in this code, BUT
+#currently check is done only for the first GPU!
+perf_levels = 4 
 
 import socket
 import json
