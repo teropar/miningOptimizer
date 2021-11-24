@@ -19,7 +19,7 @@ No admin needed for:
 Tested with:
 - Ubuntu 20.04, HiveOS 5.0.21-201105
 - Python 3.6, Python 3.8
-- RTX 3060Ti
+- RTX 3060Ti, RTX3070
 
 Python modules:
 socket, json, requests, subprocess, time
@@ -27,6 +27,10 @@ socket, json, requests, subprocess, time
 USAGE:
 - open the miningOptimizer.py file with some text editor and edit the settings for your needs, save the changes
 - on command prompt, type "sudo python3 miningOptimizer.py"
+
+ISSUES
+Currently tested only with RTX3060Ti and RTX3070. Mixing new and old generation 
+GPUs in the testing set may be or propably will cause problems. 
 
 SUPPORT
 - report bugs or request new features send email git.teropar@gmail.com
