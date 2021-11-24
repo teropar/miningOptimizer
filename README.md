@@ -21,12 +21,12 @@ Tested with:
 - Python 3.6, Python 3.8
 - RTX 3060Ti, RTX3070
 
-Python modules:
+Python modules used:
 socket, json, requests, subprocess, time
 
 USAGE:
 - open the miningOptimizer.py file with some text editor and edit the settings for your needs, save the changes
-- on command prompt, type "sudo python3 miningOptimizer.py"
+- on terminal, type "sudo python3 miningOptimizer.py"
 
 ISSUES:
 
