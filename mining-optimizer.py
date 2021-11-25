@@ -32,25 +32,26 @@ Nvidia drivers in Linux. Linux ONLY!
  - Setting core clock offset
  - Setting memory clock offset
  
- This optimizer was helpful, you increased your hashrate? Please donate:
+ This optimizer was helpful and you increased your hashrate? Please donate:
  ETH: 0x97F302dfEa4452296787A8f21F726892ed792Be9
  BTC: bc1qhvmxzat4hlyxn3kxsykct42wtlx6hhnacpq3ut
  XLM: GAE3WSWOPMEGZTC56SV4A4SLEJK4GJF4AW7M6UER3RSDTUOBAM4NZGLZ
  ETC: 0x4aE0Cdd97efd4E8Ec79CCF737b20C25A76e4aeAC
+ LTC: MVqT5iMZTDnidn7YGnQzcWcbupv4T3yYju
 """
 
 ### SETTINGS
 miner = 0 # t-rex = 0, phoenixminer = 1, nbminer = 2
 gpus = [0] #which Nvidia GPU id (in HW) we will be testing [0,1,2,3,...] comma separated list (square brackets)
-miner_gpus = gpus #GPU id on miner. On miner the gpu id can be different, e.g if running some lower HW id Nvidia GPUs on other miner. Comma separated list (square brackets] Default: miner_gpus=gpus
-power_limits = [115,125] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clocks this might be better to use just as upper limits (low=high)
+miner_gpus = gpus #corresponding GPU id on a miner. The miner GPU id can be different, e.g if running some lower HW id Nvidia GPUs on other miner or some Radeon GPUs are present. Comma separated list (square brackets] Default: miner_gpus=gpus
+power_limits = [115,125] #GPU power limits in testing, [low,high]. Testing each power setting from low to high with defined steps. NOTE, if using absolute core clocks this might be better to use just as a upper limits (low=high)
 power_step = 5 #power to increase in each power step
-gpu_mem_limits = [1500, 2300] #memory clock offset limits
+gpu_mem_limits = [1500, 2300] #memory clock offset limits [low,high]
 mem_step = 100 #memory clock to increase in each step
 gpu_core_limits = [1300, 1500] #core clock [low,high] limits. If value is 500 or less, it is considered as offset, otherwise it is absolute value
 core_step = 25 #core clock to increase in each step
 step_time = 60 #how many seconds we run each setting to allow the hashrate convergence
-save_file = True #write results to a file named: 'time_miner_powerlimits_corelimits_memlimits.log
+save_file = True #write results to a file with naming convention as 'date_miner_powerlimits_corelimits_memlimits'.log
 result_divider = 1000 #divide the results for readability. 1000 = kh, 1000000 = Mh, do not divide = 1
 ## Miner API Settings
 TREX_API = "http://127.0.0.1:4067/summary" # t-rex API address. Default http://127.0.0.1:4067/summary
@@ -58,8 +59,9 @@ PHOENIX_PORT =  3333 #Phoenixminer API port, HiveOS uses 3335? Default port 3333
 NBMINER_API = "http://0.0.0.0:22333/api/v1/status" # nbminer API address. Default http://0.0.0.0:22333/api/v1/status
 ###
 
+
 #how many performance levels in gpu, RTX = 4, using 4 as default. This is checked later in this code, BUT
-#currently check is done only for the first GPU!
+#currently check is done only for the first GPU! <- TODO
 perf_levels = 4 
 
 import socket
@@ -90,7 +92,7 @@ def get_hash_pow(miner, gpu,miner_gpu,time_step):
         pow_sum = 0
         hash_sum = 0
         #idea is to average four power values
-        #hashrate averaging default is 60s in t-rex, so no need to average,
+        #hashrate averaging default is 60s in t-rex, so no need to average hashrate,
         #but nbminer needs averaging
         for i in range(4): 
             time.sleep(time_step/4)
@@ -209,10 +211,11 @@ def check_perf_levels(gpu):
         elif(str(response.stdout).find("perf=0") > -1): # 1 level only?
             return 1
     return -1 # unknown
-#use capture_output=True in subprocess.run() to remove output 
+#Set gpu power
 def set_gpu_power(gpu,power,catch_output):
     command = "nvidia-smi -i " + str(gpu) + " -pl " + str(power)
     return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
+#Set core clock
 def set_core_clk(gpu,clock,catch_output,perf_levels):
     if(clock <= 500): #values of 500 or below are considered as offset
         command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUGraphicsClockOffset[" + str(perf_levels) + "]=" + str(clock) + "\""
@@ -220,12 +223,12 @@ def set_core_clk(gpu,clock,catch_output,perf_levels):
     else:
         command = "nvidia-smi -i " + str(gpu) + " --lock-gpu-clocks=" + str(clock) + "," + str(clock)
         return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
-    
+#Set memory clock offset
 def set_mem_clk(gpu,clock,catch_output,perf_levels):
     command = "nvidia-settings -a \"[gpu:" + str(gpu) + "]/GPUMemoryTransferRateOffset[" + str(perf_levels) +"]=" + str(clock) + "\""
     return subprocess.run(command, shell=True,stdout=subprocess.PIPE,universal_newlines=True)
 
-#check that the given power limits are both higher than the real GPU minimum
+#check that the requested power limits are both higher than the real GPU minimum
 reported_min_pl = query_gpu(gpus[0],"power.min_limit")
 if(reported_min_pl > 0): #check that value is valid
     if(power_limits[0] < reported_min_pl):
@@ -360,6 +363,7 @@ if(c_offset_set.returncode == 0 and mem_set.returncode == 0):
         set_mem_clk(gpu,best_settings[2],True,perf_levels)
         #best power 
         set_gpu_power(gpu,best_settings[3],True)
+        #This GPU test ready
 
 else:
     print("Error from Nvidia overclocking settings, exiting...")       
