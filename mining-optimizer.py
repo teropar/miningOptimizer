@@ -14,7 +14,7 @@ limit. After memory high limit is reached, the core clock is increased by the
 predefined step and memory iteration start from the low limit again etc.
 
 Currently tested only with RTX3060Ti and RTX3070. Mixing new and old generation 
-GPUs in the testing set may be or propably will cause problems. 
+GPUs in the testing set may or propably will cause problems. 
 
 After the GPU test is completed, the best settings are set on the GPU. All the 
 results can be saved on a file.
@@ -42,9 +42,9 @@ GPU overclocking
  - Setting core clock offset
  - Setting memory clock offset
  
- Tested drivers: 470.57.02, 470.86
+ Tested drivers: 460.32.03, 470.57.02, 470.86
  
- I this optimizer was helpful and you increased your hashrate, please donate:
+ If this optimizer was helpful and you increased your hashrate, please donate:
  ETH: 0x97F302dfEa4452296787A8f21F726892ed792Be9
  BTC: bc1qhvmxzat4hlyxn3kxsykct42wtlx6hhnacpq3ut
  XLM: GAE3WSWOPMEGZTC56SV4A4SLEJK4GJF4AW7M6UER3RSDTUOBAM4NZGLZ
