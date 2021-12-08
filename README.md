@@ -4,7 +4,7 @@ This Python code iteratively tests mining hashrate on Nvidia GPUs with different
 
 Current hashrate, efficiency (hash/W) and power consumption are printed continuously on terminal. Program is reading the hashrate using a miner API and GPU power is read using Nvidia API (nvidia-smi). After the GPU test is completed, the best hashrate settings are set on the GPU. All the results can be saved also on a file for careful analysis as the best hashrate settings are not usually with best efficiency.
 
-Currently support these miners: t-rex, Phoenixminer, Nbminer
+Currently support these miners: t-rex, Phoenixminer, Nbminer, miniz
 
 The code will use 'nvidia-smi' and 'nvidia-settings' which should come with Nvidia drivers in Linux. The 'nvidia-settings' program is Linux only, so this code will run correctly ONLY in Linux!
 
